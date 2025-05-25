@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Simulación Cola Río Vivo</title>
+    <style>
+        .param { color: red; }
+        table, th, td { border: 1px solid black; border-collapse: collapse; }
+        th, td { padding: 4px; }
+    </style>
+</head>
+<body>
+    <h1>Simulación Puestos de Carga - Río Vivo</h1>
+    <form method="post">
+        <label class="param">Tiempo X (horas):</label> <input type="number" step="0.1" name="X" value="{{ params.X or 10 }}"><br>
+        <label class="param">Máx. iteraciones:</label> <input type="number" name="max_iter" value="{{ params.max_iter or 1000 }}"><br>
+        <label class="param">Hora inicio j (horas):</label> <input type="number" step="0.1" name="j" value="{{ params.j or 0 }}"><br>
+        <label class="param">Iteraciones i:</label> <input type="number" name="i" value="{{ params.i or 10 }}"><br>
+        <label class="param">N° Puestos:</label> <input type="number" name="servers" value="{{ params.servers or 8 }}"><br>
+        <button type="submit">Simular</button>
+    </form>
+
+    {% if results %}
+    <h2>Vector de Estado (iteraciones seleccionadas)</h2>
+    <table>
+        <tr>
+            <th>#</th><th>Hora</th><th>Evento</th><th>Próx. Llegada</th><th>Próx. Salidas</th><th>Servidores</th><th>Servidos</th><th>Drop</th><th>Recaudación</th><th>U_interarrival</th><th>U_service</th><th>U_type</th>
+        </tr>
+        {% for rec in results %}
+        <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ rec.time }}</td>
+            <td>{{ rec.event }}</td>
+            <td>{{ rec.next_arrival }}</td>
+            <td>{{ rec.next_departures }}</td>
+            <td>
+                {% for s in rec.servers %}
+                    [{{ s.id }}: {{ 'Bus' if s.busy else 'Lib' }}, rem={{ s.remaining }}]<br>
+                {% endfor %}
+            </td>
+            <td>{{ rec.served }}</td>
+            <td>{{ rec.drop }}</td>
+            <td>{{ rec.revenue }}</td>
+            <td>{{ rec.U_interarrival }}</td>
+            <td>{{ rec.U_service }}</td>
+            <td>{{ rec.U_type }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <h2>Última Fila (instante X)</h2>
+    <pre>{{ last }}</pre>
+    {% endif %}
+</body>
+</html>
