@@ -1,54 +1,343 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <title>Simulación Cola Río Vivo</title>
-    <style>
-        .param { color: red; }
-        table, th, td { border: 1px solid black; border-collapse: collapse; }
-        th, td { padding: 4px; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simulación Puestos de Carga</title>
+
+  <!-- Bootstrap 4.5.2 – solo CSS -->
+  <link
+    rel="stylesheet"
+    href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
+    integrity="sha384-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    crossorigin="anonymous"
+  />
+
+  <!-- Estilos minimalistas & tonos cálidos -->
+  <style>
+    :root {
+      --color-fondo: #fff8f0;        /* marfil muy suave */
+      --color-principal: #d9822b;    /* naranja quemado */
+      --color-secundario: #f4a261;   /* melocotón */
+      --color-texto: #3e3a39;        /* gris oscuro suave */
+      --color-botones: #d9822b;      /* naranja quemado */
+      --color-botones-hover: #c16b1f;/* naranja más oscuro */
+      --color-cards: #fdf2e9;         /* casi marfil */
+      --color-borde: #e9c8aa;        /* arena clara */
+    }
+
+    body {
+      background-color: var(--color-fondo);
+      color: var(--color-texto);
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 2rem auto;
+    }
+
+    h1, h2 {
+      color: var(--color-principal);
+      font-weight: 500;
+    }
+
+    /* Formulario */
+    label {
+      font-weight: 500;
+    }
+
+    .form-control {
+      border: 1px solid var(--color-borde);
+      border-radius: 4px;
+      background-color: #ffffff;
+      color: var(--color-texto);
+    }
+
+    .form-control:focus {
+      box-shadow: none;
+      border-color: var(--color-principal);
+    }
+
+    /* Botón principal */
+    .btn-primary {
+      background-color: var(--color-botones);
+      border-color: var(--color-botones);
+      font-weight: 500;
+    }
+    .btn-primary:hover {
+      background-color: var(--color-botones-hover);
+      border-color: var(--color-botones-hover);
+    }
+
+    /* Tarjetas de contenido */
+    .card-custom {
+      background-color: var(--color-cards);
+      border: 1px solid var(--color-borde);
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+      margin-top: 1.5rem;
+    }
+
+    .card-custom .card-body {
+      padding: 1.5rem;
+    }
+
+    /* Tablas */
+    .table thead th {
+      background-color: var(--color-principal);
+      color: #ffffff;
+      border: none;
+      font-weight: 500;
+    }
+
+    .table tbody td {
+      border-color: var(--color-borde);
+    }
+
+    .table-responsive {
+      margin-top: 1rem;
+      max-height: 500px; /* Altura máxima para scroll vertical */
+      overflow-y: auto;
+    }
+
+    /* Alerta de error */
+    .alert-danger {
+      background-color: #f8d7da;
+      border-color: #f5c2c7;
+      color: #842029;
+    }
+
+    /* Pie de página */
+    footer {
+      text-align: center;
+      margin-top: 3rem;
+      font-size: 0.9rem;
+      color: #777;
+    }
+  </style>
 </head>
 <body>
-    <h1>Simulación Puestos de Carga - Río Vivo</h1>
-    <form method="post">
-        <label class="param">Tiempo X (horas):</label> <input type="number" step="0.1" name="X" value="{{ params.X or 10 }}"><br>
-        <label class="param">Máx. iteraciones:</label> <input type="number" name="max_iter" value="{{ params.max_iter or 1000 }}"><br>
-        <label class="param">Hora inicio j (horas):</label> <input type="number" step="0.1" name="j" value="{{ params.j or 0 }}"><br>
-        <label class="param">Iteraciones i:</label> <input type="number" name="i" value="{{ params.i or 10 }}"><br>
-        <label class="param">N° Puestos:</label> <input type="number" name="servers" value="{{ params.servers or 8 }}"><br>
-        <button type="submit">Simular</button>
-    </form>
+  <div class="container">
+    <h1 class="text-center mb-4">Simulación: Puestos de Carga</h1>
 
-    {% if results %}
-    <h2>Vector de Estado (iteraciones seleccionadas)</h2>
-    <table>
-        <tr>
-            <th>#</th><th>Hora</th><th>Evento</th><th>Próx. Llegada</th><th>Próx. Salidas</th><th>Servidores</th><th>Servidos</th><th>Drop</th><th>Recaudación</th><th>U_interarrival</th><th>U_service</th><th>U_type</th>
-        </tr>
-        {% for rec in results %}
-        <tr>
-            <td>{{ loop.index }}</td>
-            <td>{{ rec.time }}</td>
-            <td>{{ rec.event }}</td>
-            <td>{{ rec.next_arrival }}</td>
-            <td>{{ rec.next_departures }}</td>
-            <td>
-                {% for s in rec.servers %}
-                    [{{ s.id }}: {{ 'Bus' if s.busy else 'Lib' }}, rem={{ s.remaining }}]<br>
-                {% endfor %}
-            </td>
-            <td>{{ rec.served }}</td>
-            <td>{{ rec.drop }}</td>
-            <td>{{ rec.revenue }}</td>
-            <td>{{ rec.U_interarrival }}</td>
-            <td>{{ rec.U_service }}</td>
-            <td>{{ rec.U_type }}</td>
-        </tr>
-        {% endfor %}
-    </table>
-    <h2>Última Fila (instante X)</h2>
-    <pre>{{ last }}</pre>
+    <!-- Mensaje de error (si existe) -->
+    {% if error %}
+      <div class="alert alert-danger" role="alert">
+        {{ error }}
+      </div>
     {% endif %}
+
+    <!-- FORMULARIO PARAMETRIZABLE -->
+    <div class="card card-custom">
+      <div class="card-body">
+        <form method="post" action="/">
+          <div class="form-row">
+            <!-- Tiempo máximo -->
+            <div class="form-group col-md-4">
+              <label for="T_max">Tiempo máximo (minutos)</label>
+              <input
+                type="number"
+                step="any"
+                class="form-control"
+                id="T_max"
+                name="T_max"
+                placeholder="Ej: 720"
+                required
+                value="{{ request.form.T_max or '' }}"
+              />
+            </div>
+
+            <!-- Eventos máximos -->
+            <div class="form-group col-md-4">
+              <label for="N_max">Eventos máximos (N_max)</label>
+              <input
+                type="number"
+                class="form-control"
+                id="N_max"
+                name="N_max"
+                placeholder="Ej: 100000"
+                required
+                value="{{ request.form.N_max or '' }}"
+              />
+            </div>
+
+            <!-- Media interarribo (por defecto 13) -->
+            <div class="form-group col-md-4">
+              <label for="media_interarribo">Media llegada (minutos)</label>
+              <input
+                type="number"
+                step="any"
+                class="form-control"
+                id="media_interarribo"
+                name="media_interarribo"
+                placeholder="13"
+                required
+                value="{{ request.form.media_interarribo or '13' }}"
+              />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <!-- Tiempo de validación (por defecto 2) -->
+            <div class="form-group col-md-4">
+              <label for="tiempo_validacion">Validación (minutos)</label>
+              <input
+                type="number"
+                step="any"
+                class="form-control"
+                id="tiempo_validacion"
+                name="tiempo_validacion"
+                placeholder="2"
+                required
+                value="{{ request.form.tiempo_validacion or '2' }}"
+              />
+            </div>
+
+            <!-- Porcentaje USB-C (por defecto 0.45) -->
+            <div class="form-group col-md-4">
+              <label for="p_usb_c">USB-C (0–1)</label>
+              <input
+                type="number"
+                step="any"
+                class="form-control"
+                id="p_usb_c"
+                name="p_usb_c"
+                placeholder="0.45"
+                required
+                value="{{ request.form.p_usb_c or '0.45' }}"
+              />
+            </div>
+
+            <!-- Porcentaje Lightning (por defecto 0.25) -->
+            <div class="form-group col-md-4">
+              <label for="p_lightning">Lightning (0–1)</label>
+              <input
+                type="number"
+                step="any"
+                class="form-control"
+                id="p_lightning"
+                name="p_lightning"
+                placeholder="0.25"
+                required
+                value="{{ request.form.p_lightning or '0.25' }}"
+              />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <!-- Porcentaje MicroUSB (por defecto 0.30) -->
+            <div class="form-group col-md-4">
+              <label for="p_microusb">MicroUSB (0–1)</label>
+              <input
+                type="number"
+                step="any"
+                class="form-control"
+                id="p_microusb"
+                name="p_microusb"
+                placeholder="0.30"
+                required
+                value="{{ request.form.p_microusb or '0.30' }}"
+              />
+            </div>
+            <!-- Espacio vacío para alineación -->
+            <div class="form-group col-md-8"></div>
+          </div>
+
+          <button type="submit" class="btn btn-primary btn-block">
+            Iniciar Simulación
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- RESULTADOS: aparecen si existen “resumen” y “vector_estado” -->
+    {% if resumen and vector_estado %}
+      <div class="card card-custom mt-4">
+        <div class="card-body">
+          <h2 class="mb-3">Resumen de la simulación</h2>
+          <ul class="list-group mb-4">
+            <li class="list-group-item">
+              <strong>Llegadas aceptadas:</strong> {{ resumen.n_aceptadas }}
+            </li>
+            <li class="list-group-item">
+              <strong>Llegadas rechazadas:</strong> {{ resumen.n_rechazadas }}
+            </li>
+            <li class="list-group-item">
+              <strong>Recaudación total:</strong> ${{ resumen.recaudacion_total }}
+            </li>
+            <li class="list-group-item">
+              <strong>Utilización promedio:</strong> {{ resumen.utilizacion_promedio }} %
+            </li>
+          </ul>
+
+          <h2 class="mb-3">Última fila del vector de estado</h2>
+          <div class="table-responsive mb-4">
+            <table class="table table-sm table-bordered">
+              <thead>
+                <tr>
+                  {% for clave in ultima_fila.keys() %}
+                    <th>{{ clave }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  {% for valor in ultima_fila.values() %}
+                    <td>{{ valor }}</td>
+                  {% endfor %}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 class="mb-3">Vector completo de estado ({{ vector_estado | length }} fila(s))</h2>
+          <div class="table-responsive">
+            <table class="table table-sm table-hover table-bordered">
+              <thead>
+                <tr>
+                  {% for clave in vector_estado[0].keys() %}
+                    <th>{{ clave }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for fila in vector_estado %}
+                  <tr>
+                    {% for valor in fila.values() %}
+                      <td>{{ valor }}</td>
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    <footer class="mt-5">
+      &copy; 2025 – Puestos de Carga Río Vivo
+    </footer>
+  </div>
+
+  <!-- Bootstrap JS y dependencias (opcional) -->
+  <script
+    src="https://code.jquery.com/jquery-3.5.1.slim.min.js"
+    integrity="sha384-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    crossorigin="anonymous"
+  ></script>
+  <script
+    src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"
+    integrity="sha384-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    crossorigin="anonymous"
+  ></script>
+  <script
+    src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"
+    integrity="sha384-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    crossorigin="anonymous"
+  ></script>
 </body>
 </html>
