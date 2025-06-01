@@ -91,15 +91,19 @@
       color: #ffffff;
       border: none;
       font-weight: 500;
+      font-size: 0.80rem;
+      white-space: nowrap;
     }
 
     .table tbody td {
       border-color: var(--color-borde);
+      font-size: 0.75rem;
+      white-space: nowrap;
     }
 
     .table-responsive {
       margin-top: 1rem;
-      max-height: 500px; /* Altura máxima para scroll vertical */
+      max-height: 400px; /* Altura máxima para scroll vertical */
       overflow-y: auto;
     }
 
@@ -242,7 +246,7 @@
                 value="{{ request.form.p_microusb or '0.30' }}"
               />
             </div>
-            <!-- Espacio vacío para alineación -->
+            <!-- Espacio vacío para mantener alineación -->
             <div class="form-group col-md-8"></div>
           </div>
 

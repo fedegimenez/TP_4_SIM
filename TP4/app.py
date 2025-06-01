@@ -4,39 +4,50 @@
 app.py
 
 Aplicación Flask que implementa la simulación de “Puestos de Carga – Festival Río Vivo”
-(punto B del TP4), con parámetros ingresables desde el frontend:
-  - Tiempo máximo de simulación (T_max, en minutos).
-  - Cantidad máxima de eventos (N_max).
-  - Media de interarribos (en minutos) – por defecto 13.
-  - Porcentaje de cada tipo de cargador: USB-C (0.45), Lightning (0.25), MicroUSB (0.30).
-  - Tiempo de validación (en minutos) tras terminar la carga – por defecto 2.
+(punto B del TP4), con los siguientes puntos clave:
 
-El vector de estado final consta de 19 columnas en cada fila:
-  1. Iteraciones
-  2. Evento (“Llegada dispositivo”, “Fin de carga”, “Validación”)
-  3. RND dispositivo
-  4. Tipo dispositivo
-  5. RND tiempo
-  6. Tiempo entre llegadas
-  7. Próxima llegada
-  8. Cant dispositivos en puerto
-  9. Porcentaje Puestos en uso
-  10. RND carga
-  11. Tiempo carga
-  12. Fin de carga puesto 1
-  13. Fin de carga puesto 2
-  14. Fin de carga puesto 3
-  15. Fin de carga puesto 4
-  16. Fin de carga puesto 5
-  17. Fin de carga puesto 6
-  18. Fin de carga puesto 7
-  19. Fin de carga puesto 8
+  • Se agrega la columna “Reloj” como columna 2, inmediatamente después de “Iteraciones”.  
+    – En la fila 0 (“INICIO SIM”), Reloj = 0.  
+    – En cada evento, Reloj = tiempo del evento.
+
+  • El vector de estado final consta ahora de **30 columnas** en cada fila, en este orden:
+
+    1. Iteraciones
+    2. Reloj
+    3. Evento
+    4. RND dispositivo
+    5. Tipo dispositivo
+    6. RND tiempo
+    7. Tiempo entre llegadas
+    8. Próxima llegada
+    9. Cant dispositivos en puerto
+   10. Porcentaje Puestos en uso
+   11. RND carga
+   12. Tiempo carga
+   13. Fin de carga puesto 1
+   14. Fin de carga puesto 2
+   15. Fin de carga puesto 3
+   16. Fin de carga puesto 4
+   17. Fin de carga puesto 5
+   18. Fin de carga puesto 6
+   19. Fin de carga puesto 7
+   20. Fin de carga puesto 8
+   21. Estados puestos de validación
+   22. Cola de validación
+   23. Tiempo validación
+   24. Fin de validación
+   25. Acumulador tiempo USB C
+   26. Acumulador tiempo Lightning
+   27. Acumulador tiempo MicroUSB
+   28. Recaudación USB C
+   29. Recaudación Lightning
+   30. Recaudación MicroUSB
 
 Para ejecutar:
-  - Guardar este archivo en el mismo nivel que la carpeta `templates`.
-  - Instalar Flask: `pip install flask`
-  - Ejecutar: `python app.py`
-  - Abrir en el navegador: http://localhost:5000/
+  1. Instalar Flask si no lo tienes:  `pip install flask`
+  2. Guardar este archivo junto a la carpeta `templates/`
+  3. Ejecutar: `python app.py`
+  4. Abrir en el navegador: http://localhost:5000/
 """
 
 import math
@@ -52,8 +63,7 @@ class Evento:
     Representa un evento en la simulación:
       - tiempo: instante en minutos (float)
       - tipo: "arrival", "end_charge" o "end_validation"
-      - data: información adicional:
-           * para end_charge y end_validation: (idx_servidor, tipo_dispositivo)
+      - data: para end_charge y end_validation → (idx_servidor, tipo_dispositivo, fin_carga_o_fin_validación)
     """
     _contador_global = 0
 
@@ -61,12 +71,12 @@ class Evento:
         self.tiempo = tiempo
         self.tipo = tipo
         self.data = data
-        # Para evitar empates en el heap, asignamos un orden secuencial
+        # Para deshacer empates en el heap, asignamos un orden secuencial
         self._orden = Evento._contador_global
         Evento._contador_global += 1
 
     def __lt__(self, otro):
-        # Orden primero por tiempo, luego por orden de creación
+        # Orden primero por tiempo; si empatan, por orden de creación
         if self.tiempo == otro.tiempo:
             return self._orden < otro._orden
         return self.tiempo < otro.tiempo
@@ -82,7 +92,7 @@ def generar_interarribo(media):
 
 def seleccionar_tiempo_carga():
     """
-    Retorna (carga_horas, u_tiempo) con distribución:
+    Retorna (carga_horas, u_tiempo) con distribución discreta:
       P(1h)=0.50, P(2h)=0.30, P(3h)=0.15, P(4h)=0.05.
     """
     u = random.random()
@@ -106,49 +116,95 @@ def simular_puestos_carga(
     tiempo_validacion
 ):
     """
-    Ejecuta la simulación con los parámetros indicados.  
-    Devuelve:
-      - vector_estado: lista de 19-columnas (cada fila es un dict).
+    Ejecuta la simulación y devuelve:
+      - vector_estado: lista de 30 columnas (cada fila es un dict).
       - resumen: dict con n_aceptadas, n_rechazadas, recaudacion_total, utilizacion_promedio.
-      - ultima_fila: dict con las 19 columnas de la última iteración.
+      - ultima_fila: dict con las 30 columnas de la última iteración.
     """
+
     random.seed()  # semilla aleatoria
 
-    # 1) Parámetros fijos
+    # ===== Parámetros fijos =====
     n_servidores = 8
     tarifas = {"USB-C": 300, "Lightning": 500, "MicroUSB": 1000}  # $/hora
 
-    # 2) Estado de cada servidor: 
-    #    "ocupado" (bool), "device_type" (str), "etapa" ("cargando"/"validando"/None), 
-    #    "fin_carga" (float o None)
+    # Estado de cada servidor:
+    #   "ocupado" (bool),
+    #   "device_type" (str),
+    #   "etapa" ("cargando"/"validando"/None),
+    #   "fin_carga" (float o None),
+    #   "fin_validacion" (float o None)
     servidores = [
-        {"ocupado": False, "device_type": None, "etapa": None, "fin_carga": None}
+        {"ocupado": False, "device_type": None, "etapa": None,
+         "fin_carga": None, "fin_validacion": None}
         for _ in range(n_servidores)
     ]
 
-    # 3) Cola de eventos futuros (heap)
+    # Cola de eventos futuros (heap)
     eventos_futuros = []
 
-    # Programar la primera llegada
-    primer_inter = generar_interarribo(media_interarribo)
-    heapq.heappush(eventos_futuros, Evento(primer_inter, "arrival"))
+    # ===== Crear fila 0: INICIO SIM =====
+    # Generar RND tiempo para primera llegada
+    u_tiempo0 = random.random()
+    interarribo0 = -media_interarribo * math.log(1 - u_tiempo0)
+    prox_llegada0 = interarribo0
 
-    # 4) Variables de conteo
+    fila0 = {
+        "Iteraciones": 0,
+        "Reloj": 0.0,
+        "Evento": "INICIO SIM",
+        "RND dispositivo": None,
+        "Tipo dispositivo": None,
+        "RND tiempo": round(u_tiempo0, 4),
+        "Tiempo entre llegadas": round(interarribo0, 4),
+        "Próxima llegada": round(prox_llegada0, 4),
+        "Cant dispositivos en puerto": 0,
+        "Porcentaje Puestos en uso": 0.0,
+        "RND carga": None,
+        "Tiempo carga": None,
+    }
+    # Columnas 13–20 (Fin de carga puesto 1..8)
+    for i in range(n_servidores):
+        fila0[f"Fin de carga puesto {i+1}"] = None
+    # Columnas 21–30
+    fila0["Estados puestos de validación"] = "LIBRE"
+    fila0["Cola de validación"] = 0
+    fila0["Tiempo validación"] = int(tiempo_validacion)
+    fila0["Fin de validación"] = None
+    fila0["Acumulador tiempo USB C"] = 0
+    fila0["Acumulador tiempo Lightning"] = 0
+    fila0["Acumulador tiempo MicroUSB"] = 0
+    fila0["Recaudación USB C"] = 0.0
+    fila0["Recaudación Lightning"] = 0.0
+    fila0["Recaudación MicroUSB"] = 0.0
+
+    # Inicializar vector de estado con esa fila 0
+    vector_estado = [fila0]
+
+    # ===== Programar la primera llegada usando prox_llegada0 =====
+    heapq.heappush(eventos_futuros, Evento(prox_llegada0, "arrival"))
+
+    # ===== Variables acumuladas =====
     clock = 0.0
     evento_id = 0
     n_aceptadas = 0
     n_rechazadas = 0
     recaudacion_total = 0.0
 
-    # Para cálculo de área bajo número de servidores ocupados
+    acum_time_usb_c = 0
+    acum_time_lightning = 0
+    acum_time_microusb = 0
+
+    rec_usb_c = 0.0
+    rec_lightning = 0.0
+    rec_microusb = 0.0
+
+    # Para cálculo de área de utilización
     area_ocupados = 0.0
     reloj_previo = 0.0
     n_ocupados_previo = 0
 
-    # 5) Vector de estado: fila por cada evento, con 19 columnas
-    vector_estado = []
-
-    # 6) Bucle principal: procesar hasta T_max o N_max eventos
+    # ===== Bucle de eventos (filas 1, 2, 3…) =====
     while eventos_futuros and evento_id < N_max:
         evento = heapq.heappop(eventos_futuros)
         t_evt = evento.tiempo
@@ -164,12 +220,13 @@ def simular_puestos_carga(
         area_ocupados += delta_t * n_ocupados_previo
         reloj_previo = clock
 
-        # Contador de iteraciones
+        # Nuevo contador de iteración
         evento_id += 1
 
-        # Array base con 19 campos en el orden especificado
+        # Crear fila base con las 30 columnas inicializadas
         fila = {
             "Iteraciones": evento_id,
+            "Reloj": round(clock, 4),
             "Evento": None,
             "RND dispositivo": None,
             "Tipo dispositivo": None,
@@ -180,13 +237,25 @@ def simular_puestos_carga(
             "Porcentaje Puestos en uso": None,
             "RND carga": None,
             "Tiempo carga": None,
-            # Inicializamos todas las 8 columnas de fin_carga en None
-            **{f"Fin de carga puesto {i+1}": None for i in range(n_servidores)}
         }
+        # Columnas 13–20: Fin de carga puesto 1..8
+        for i in range(n_servidores):
+            fila[f"Fin de carga puesto {i+1}"] = None
+        # Columnas 21–30
+        fila["Estados puestos de validación"] = None
+        fila["Cola de validación"] = None
+        fila["Tiempo validación"] = None
+        fila["Fin de validación"] = None
+        fila["Acumulador tiempo USB C"] = None
+        fila["Acumulador tiempo Lightning"] = None
+        fila["Acumulador tiempo MicroUSB"] = None
+        fila["Recaudación USB C"] = None
+        fila["Recaudación Lightning"] = None
+        fila["Recaudación MicroUSB"] = None
 
-        # ==== Caso 1: Llegada de dispositivo ====
+        # ===== Caso 1: Llegada de dispositivo =====
         if evento.tipo == "arrival":
-            # 1. Elegir tipo de dispositivo con RND dispositivo
+            # 1) RND dispositivo para elegir tipo
             u_device = random.random()
             if u_device < p_usb_c:
                 tipo_disp = "USB-C"
@@ -195,12 +264,12 @@ def simular_puestos_carga(
             else:
                 tipo_disp = "MicroUSB"
 
-            # 2. Generar interarribo exponencial con RND tiempo
+            # 2) RND tiempo para el siguiente interarribo
             u_tiempo = random.random()
             interarribo = -media_interarribo * math.log(1 - u_tiempo)
             prox_llegada = clock + interarribo
 
-            # 3. Llenar columnas de llegada
+            # 3) Completar columnas de llegada
             fila["Evento"] = "Llegada dispositivo"
             fila["RND dispositivo"] = round(u_device, 4)
             fila["Tipo dispositivo"] = tipo_disp
@@ -208,7 +277,7 @@ def simular_puestos_carga(
             fila["Tiempo entre llegadas"] = round(interarribo, 4)
             fila["Próxima llegada"] = round(prox_llegada, 4)
 
-            # 4. Intentar ocupar un servidor libre
+            # 4) Intentar ocupar un servidor libre
             idx_libres = [i for i, srv in enumerate(servidores) if not srv["ocupado"]]
             if idx_libres:
                 idx_ser = idx_libres[0]
@@ -216,22 +285,30 @@ def simular_puestos_carga(
                 servidores[idx_ser]["device_type"] = tipo_disp
                 servidores[idx_ser]["etapa"] = "cargando"
 
-                # Generar duración de carga con RND carga
+                # 5) RND carga y calcular duración
                 carga_horas, u_tiempo_carga = seleccionar_tiempo_carga()
                 dur_carga_min = carga_horas * 60
                 t_fin_carga = clock + dur_carga_min
-
-                # Registrar en el servidor su próximo fin de carga
                 servidores[idx_ser]["fin_carga"] = t_fin_carga
 
-                # Acumular recaudación
+                # 6) Acumular tiempo y recaudación según tipo
+                if tipo_disp == "USB-C":
+                    acum_time_usb_c += dur_carga_min
+                    rec_usb_c += tarifas["USB-C"] * carga_horas
+                elif tipo_disp == "Lightning":
+                    acum_time_lightning += dur_carga_min
+                    rec_lightning += tarifas["Lightning"] * carga_horas
+                else:  # MicroUSB
+                    acum_time_microusb += dur_carga_min
+                    rec_microusb += tarifas["MicroUSB"] * carga_horas
+
                 recaudacion_total += tarifas[tipo_disp] * carga_horas
 
-                # Programar evento de fin de carga
-                data_carga = (idx_ser, tipo_disp)
+                # 7) Programar fin de carga
+                data_carga = (idx_ser, tipo_disp, t_fin_carga)
                 heapq.heappush(eventos_futuros, Evento(t_fin_carga, "end_charge", data_carga))
 
-                # Llenar columnas de RND carga y Tiempo carga
+                # 8) Completar columnas de RND carga y Tiempo carga
                 fila["RND carga"] = round(u_tiempo_carga, 4)
                 fila["Tiempo carga"] = int(dur_carga_min)
 
@@ -240,64 +317,90 @@ def simular_puestos_carga(
                 # Rechazo la llegada
                 n_rechazadas += 1
 
-            # 5. Siempre programar la próxima llegada
+            # 9) Programar siguiente llegada
             heapq.heappush(eventos_futuros, Evento(prox_llegada, "arrival"))
 
-        # ==== Caso 2: Fin de carga ====
+        # ===== Caso 2: Fin de carga =====
         elif evento.tipo == "end_charge":
-            idx_ser, tipo_disp = evento.data
-            # Cambiar etapa a validación
+            idx_ser, tipo_disp, t_fin_carga = evento.data
+
+            # 1) Cambiar etapa a “validando”
             servidores[idx_ser]["etapa"] = "validando"
-            # Borrar fin_carga porque ya terminó la carga
             servidores[idx_ser]["fin_carga"] = None
 
-            # Programar fin de validación
+            # 2) Calcular fin de validación
             t_fin_valid = clock + tiempo_validacion
-            data_valid = (idx_ser, tipo_disp)
+            servidores[idx_ser]["fin_validacion"] = t_fin_valid
+
+            # 3) Programar fin de validación
+            data_valid = (idx_ser, tipo_disp, t_fin_valid)
             heapq.heappush(eventos_futuros, Evento(t_fin_valid, "end_validation", data_valid))
 
+            # 4) Completar columnas
             fila["Evento"] = "Fin de carga"
             fila["Tipo dispositivo"] = tipo_disp
-            # Para este evento, las columnas de RND y tiempos de llegada no aplican (ya se gestionaron en la llegada)
-            # Dejamos RND carga / Tiempo carga en None
-            # "Próxima llegada" ya está programada en la cola, así que dejamos None aquí
+            fila["Fin de validación"] = round(t_fin_valid, 4)
 
-        # ==== Caso 3: Fin de validación ====
+        # ===== Caso 3: Fin de validación =====
         elif evento.tipo == "end_validation":
-            idx_ser, tipo_disp = evento.data
-            # Liberar servidor
+            idx_ser, tipo_disp, t_fin_valid = evento.data
+
+            # 1) Liberar servidor
             servidores[idx_ser]["ocupado"] = False
             servidores[idx_ser]["device_type"] = None
             servidores[idx_ser]["etapa"] = None
-            servidores[idx_ser]["fin_carga"] = None
+            servidores[idx_ser]["fin_validacion"] = None
 
+            # 2) Completar columna
             fila["Evento"] = "Validación"
             fila["Tipo dispositivo"] = tipo_disp
-            # RND y tiempos no aplican en validación
-            # "Próxima llegada" ya programada, dejamos None
+            # “Fin de validación” ya se colocó en la fila de “Fin de carga”
 
         else:
-            # No debería ocurrir
+            # No debería pasar
             continue
 
-        # 6. Después de procesar el evento, contamos dispositivos ocupados
+        # ===== Columnas 9–10: Cant dispositivos en puerto y % puestos en uso =====
         ocupados = sum(1 for srv in servidores if srv["ocupado"])
         fila["Cant dispositivos en puerto"] = ocupados
         fila["Porcentaje Puestos en uso"] = round((ocupados / n_servidores) * 100, 2)
 
-        # 7. Finalmente, llenamos las columnas 12–19 con fin_carga de cada servidor
+        # ===== Columnas 13–20: Fin de carga puesto 1..8 =====
         for i in range(n_servidores):
             key = f"Fin de carga puesto {i+1}"
             fin_carga_i = servidores[i]["fin_carga"]
             fila[key] = round(fin_carga_i, 4) if fin_carga_i is not None else None
 
-        # 8. Agregar la fila completa (19 columnas) al vector de estado
+        # ===== Columna 21: Estados puestos de validación =====
+        en_validacion = sum(1 for srv in servidores if srv["etapa"] == "validando")
+        fila["Estados puestos de validación"] = en_validacion
+
+        # ===== Columna 22: Cola de validación =====
+        fila["Cola de validación"] = 0  # siempre 0, pues validación se hace en mismo puesto
+
+        # ===== Columna 23: Tiempo validación =====
+        fila["Tiempo validación"] = int(tiempo_validacion)
+
+        # ===== Columna 24: Fin de validación =====
+        # Se colocó en el caso “Fin de carga”; en otros eventos queda None
+
+        # ===== Columnas 25–27: Acumuladores tiempo de carga por tipo =====
+        fila["Acumulador tiempo USB C"] = acum_time_usb_c
+        fila["Acumulador tiempo Lightning"] = acum_time_lightning
+        fila["Acumulador tiempo MicroUSB"] = acum_time_microusb
+
+        # ===== Columnas 28–30: Recaudación por tipo =====
+        fila["Recaudación USB C"] = round(rec_usb_c, 2)
+        fila["Recaudación Lightning"] = round(rec_lightning, 2)
+        fila["Recaudación MicroUSB"] = round(rec_microusb, 2)
+
+        # ===== Agregar fila completa al vector de estado =====
         vector_estado.append(fila)
 
-        # Actualizar n_ocupados_previo para el próximo loop
+        # Actualizar ocupados previos
         n_ocupados_previo = ocupados
 
-    # Ajuste de área en caso de que clock < T_max
+    # ===== Ajuste final de área para cálculo de utilización =====
     if clock < T_max:
         delta_t = T_max - reloj_previo
         area_ocupados += delta_t * n_ocupados_previo
@@ -305,7 +408,6 @@ def simular_puestos_carga(
     else:
         clock_para_util = clock
 
-    # Cálculo de Utilización promedio (%)
     utilizacion_promedio = (
         area_ocupados / (n_servidores * clock_para_util) * 100
         if clock_para_util > 0 else 0.0
@@ -322,7 +424,7 @@ def simular_puestos_carga(
     return vector_estado, resumen, ultima_fila
 
 
-# === RUTAS DE FLASK ===
+# ===== RUTA PRINCIPAL =====
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -332,7 +434,6 @@ def index():
             T_max = float(request.form.get("T_max", "0"))
             N_max = int(request.form.get("N_max", "0"))
 
-            # Valores por defecto si está vacío
             media_interarribo = float(request.form.get("media_interarribo", "13"))
             tiempo_validacion = float(request.form.get("tiempo_validacion", "2"))
 
@@ -383,7 +484,7 @@ def index():
             vector_estado=vector
         )
 
-    # GET → formulario con valores por defecto
+    # GET → mostrar formulario con valores por defecto
     return render_template("index.html",
                            error=None,
                            resumen=None,
