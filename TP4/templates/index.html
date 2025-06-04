@@ -246,6 +246,24 @@
                 value="{{ request.form.p_microusb or '0.30' }}"
               />
             </div>
+            <!-- Nuevo campo: Cantidad de puestos -->
+            <div class="form-group col-md-4">
+              <label for="n_servidores">Puestos disponibles</label>
+              <select
+                class="form-control"
+                id="n_servidores"
+                name="n_servidores"
+                required
+              >
+                <!-- Si el usuario ya envió el formulario, mantenemos esa selección -->
+                <option value="8" {% if request.form.n_servidores == '8' %}selected{% endif %}>
+                  8 puestos
+                </option>
+                <option value="10" {% if request.form.n_servidores == '10' %}selected{% endif %}>
+                  10 puestos
+                </option>
+              </select>
+            </div>
             <!-- Espacio vacío para mantener alineación -->
             <div class="form-group col-md-8"></div>
           </div>
@@ -273,7 +291,7 @@
               <strong>Recaudación total:</strong> ${{ resumen.recaudacion_total }}
             </li>
             <li class="list-group-item">
-              <strong>Utilización promedio:</strong> {{ resumen.utilizacion_promedio }} %
+              <strong>Porcentaje de utilización de puestos promedio:</strong> {{ resumen.utilizacion_promedio }} %
             </li>
           </ul>
 
