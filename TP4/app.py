@@ -113,7 +113,8 @@ def simular_puestos_carga(
     p_usb_c,
     p_lightning,
     p_microusb,
-    tiempo_validacion
+    tiempo_validacion,
+    n_servidores
 ):
     """
     Ejecuta la simulación y devuelve:
@@ -125,8 +126,9 @@ def simular_puestos_carga(
     random.seed()  # semilla aleatoria
 
     # ===== Parámetros fijos =====
-    n_servidores = 8
     tarifas = {"USB-C": 300, "Lightning": 500, "MicroUSB": 1000}  # $/hora
+    puesto_validacion_libre = True
+    cola_validacion = []
 
     # Estado de cada servidor:
     #   "ocupado" (bool),
@@ -136,7 +138,7 @@ def simular_puestos_carga(
     #   "fin_validacion" (float o None)
     servidores = [
         {"ocupado": False, "device_type": None, "etapa": None,
-         "fin_carga": None, "fin_validacion": None}
+         "fin_carga": None, "fin_validacion": None, "duracion_carga": None}
         for _ in range(n_servidores)
     ]
 
@@ -160,16 +162,19 @@ def simular_puestos_carga(
         "Próxima llegada": round(prox_llegada0, 4),
         "Cant dispositivos en puerto": 0,
         "Porcentaje Puestos en uso": 0.0,
+        "Acum porcentaje puestos en uso": 0.0,
+        "Promedio porcentaje puestos en uso": 0.0,
         "RND carga": None,
         "Tiempo carga": None,
     }
     # Columnas 13–20 (Fin de carga puesto 1..8)
     for i in range(n_servidores):
         fila0[f"Fin de carga puesto {i+1}"] = None
+        fila0[f"Tiempo carga puesto {i+1}"] = None
     # Columnas 21–30
-    fila0["Estados puestos de validación"] = "LIBRE"
+    fila0["Estado puesto de validación"] = "Libre"
     fila0["Cola de validación"] = 0
-    fila0["Tiempo validación"] = int(tiempo_validacion)
+    fila0["Tiempo validación"] = 0
     fila0["Fin de validación"] = None
     fila0["Acumulador tiempo USB C"] = 0
     fila0["Acumulador tiempo Lightning"] = 0
@@ -190,6 +195,8 @@ def simular_puestos_carga(
     n_aceptadas = 0
     n_rechazadas = 0
     recaudacion_total = 0.0
+
+    acum_porcentaje_puestos = 0.0
 
     acum_time_usb_c = 0
     acum_time_lightning = 0
@@ -235,12 +242,15 @@ def simular_puestos_carga(
             "Próxima llegada": None,
             "Cant dispositivos en puerto": None,
             "Porcentaje Puestos en uso": None,
+            "Acum porcentaje puestos en uso": None,
+            "Promedio porcentaje puestos en uso": None,
             "RND carga": None,
             "Tiempo carga": None,
         }
         # Columnas 13–20: Fin de carga puesto 1..8
         for i in range(n_servidores):
             fila[f"Fin de carga puesto {i+1}"] = None
+            fila[f"Tiempo carga puesto {i+1}"] = None
         # Columnas 21–30
         fila["Estados puestos de validación"] = None
         fila["Cola de validación"] = None
@@ -290,19 +300,7 @@ def simular_puestos_carga(
                 dur_carga_min = carga_horas * 60
                 t_fin_carga = clock + dur_carga_min
                 servidores[idx_ser]["fin_carga"] = t_fin_carga
-
-                # 6) Acumular tiempo y recaudación según tipo
-                if tipo_disp == "USB-C":
-                    acum_time_usb_c += dur_carga_min
-                    rec_usb_c += tarifas["USB-C"] * carga_horas
-                elif tipo_disp == "Lightning":
-                    acum_time_lightning += dur_carga_min
-                    rec_lightning += tarifas["Lightning"] * carga_horas
-                else:  # MicroUSB
-                    acum_time_microusb += dur_carga_min
-                    rec_microusb += tarifas["MicroUSB"] * carga_horas
-
-                recaudacion_total += tarifas[tipo_disp] * carga_horas
+                servidores[idx_ser]["duracion_carga"] = dur_carga_min
 
                 # 7) Programar fin de carga
                 data_carga = (idx_ser, tipo_disp, t_fin_carga)
@@ -324,26 +322,47 @@ def simular_puestos_carga(
         elif evento.tipo == "end_charge":
             idx_ser, tipo_disp, t_fin_carga = evento.data
 
-            # 1) Cambiar etapa a “validando”
-            servidores[idx_ser]["etapa"] = "validando"
+            fila["Evento"] = "Fin de carga"
+
+            # acumulamos la duracion de la carga y su recaudacion en su tipo
+            dur_carga_min = servidores[idx_ser]["duracion_carga"]
+            if dur_carga_min is not None:
+                if tipo_disp == "USB-C":
+                    acum_time_usb_c += dur_carga_min
+                    rec_usb_c += tarifas["USB-C"] * (dur_carga_min / 60)
+                elif tipo_disp == "Lightning":
+                    acum_time_lightning += dur_carga_min
+                    rec_lightning += tarifas["Lightning"] * (dur_carga_min / 60)
+                else:  # MicroUSB
+                    acum_time_microusb += dur_carga_min
+                    rec_microusb += tarifas["MicroUSB"] * (dur_carga_min / 60)
+
+            recaudacion_total += rec_usb_c + rec_lightning + rec_microusb
+            # 1) El servidor queda libre para cargar, pero el dispositivo va a validación
+            servidores[idx_ser]["etapa"] = None
             servidores[idx_ser]["fin_carga"] = None
 
-            # 2) Calcular fin de validación
-            t_fin_valid = clock + tiempo_validacion
-            servidores[idx_ser]["fin_validacion"] = t_fin_valid
+            servidores[idx_ser]["duracion_carga"] = None
 
-            # 3) Programar fin de validación
-            data_valid = (idx_ser, tipo_disp, t_fin_valid)
-            heapq.heappush(eventos_futuros, Evento(t_fin_valid, "end_validation", data_valid))
-
-            # 4) Completar columnas
-            fila["Evento"] = "Fin de carga"
-            fila["Tipo dispositivo"] = tipo_disp
-            fila["Fin de validación"] = round(t_fin_valid, 4)
+            # 2) Validación centralizada
+            if puesto_validacion_libre:
+                puesto_validacion_libre = False
+                t_fin_valid = clock + tiempo_validacion
+                heapq.heappush(eventos_futuros, Evento(t_fin_valid, "end_validation", (idx_ser, tipo_disp, t_fin_valid)))
+                fila["Cola de validación"] = len(cola_validacion)
+                fila["Fin de validación"] = round(t_fin_valid, 4)
+                fila["Tiempo validación"] = 2  # ← Solo aquí
+            else:
+                cola_validacion.append((idx_ser, tipo_disp))
+                fila["Cola de validación"] = len(cola_validacion)
+                fila["Fin de validación"] = None
+                # No asignar aquí, se pone 0 al final
 
         # ===== Caso 3: Fin de validación =====
         elif evento.tipo == "end_validation":
             idx_ser, tipo_disp, t_fin_valid = evento.data
+
+            fila["Evento"] = "Fin de validación"
 
             # 1) Liberar servidor
             servidores[idx_ser]["ocupado"] = False
@@ -351,10 +370,19 @@ def simular_puestos_carga(
             servidores[idx_ser]["etapa"] = None
             servidores[idx_ser]["fin_validacion"] = None
 
-            # 2) Completar columna
-            fila["Evento"] = "Validación"
-            fila["Tipo dispositivo"] = tipo_disp
-            # “Fin de validación” ya se colocó en la fila de “Fin de carga”
+            # 2) Liberar puesto de validación o pasar al siguiente de la cola
+            if cola_validacion:
+                next_idx_ser, next_tipo_disp = cola_validacion.pop(0)
+                t_fin_valid_next = clock + tiempo_validacion
+                heapq.heappush(eventos_futuros, Evento(t_fin_valid_next, "end_validation", (next_idx_ser, next_tipo_disp, t_fin_valid_next)))
+                fila["Cola de validación"] = len(cola_validacion)
+                fila["Fin de validación"] = round(t_fin_valid_next, 4)
+                fila["Tiempo validación"] = 2  # ← Solo aquí
+            else:
+                puesto_validacion_libre = True
+                fila["Cola de validación"] = 0
+                fila["Fin de validación"] = None
+                # No asignar aquí, se pone 0 al final
 
         else:
             # No debería pasar
@@ -363,7 +391,13 @@ def simular_puestos_carga(
         # ===== Columnas 9–10: Cant dispositivos en puerto y % puestos en uso =====
         ocupados = sum(1 for srv in servidores if srv["ocupado"])
         fila["Cant dispositivos en puerto"] = ocupados
-        fila["Porcentaje Puestos en uso"] = round((ocupados / n_servidores) * 100, 2)
+
+        porcentaje_en_uso = (ocupados / n_servidores) * 100 if n_servidores > 0 else 0.0
+        fila["Porcentaje Puestos en uso"] = porcentaje_en_uso
+        acum_porcentaje_puestos += porcentaje_en_uso
+        fila["Acum porcentaje puestos en uso"] = acum_porcentaje_puestos
+
+        fila["Promedio porcentaje puestos en uso"] = round((acum_porcentaje_puestos / evento_id), 4) if evento_id > 0 else 0.0
 
         # ===== Columnas 13–20: Fin de carga puesto 1..8 =====
         for i in range(n_servidores):
@@ -371,15 +405,20 @@ def simular_puestos_carga(
             fin_carga_i = servidores[i]["fin_carga"]
             fila[key] = round(fin_carga_i, 4) if fin_carga_i is not None else None
 
+            key2 = f"Tiempo carga puesto {i+1}"
+            dur_i = servidores[i]["duracion_carga"]    # lo que aún falta en ese servidor
+            fila[key2] = int(dur_i) if dur_i is not None else None
+
         # ===== Columna 21: Estados puestos de validación =====
-        en_validacion = sum(1 for srv in servidores if srv["etapa"] == "validando")
-        fila["Estados puestos de validación"] = en_validacion
+        fila["Estados puestos de validación"] = "Libre" if puesto_validacion_libre else "Ocupado"
 
         # ===== Columna 22: Cola de validación =====
-        fila["Cola de validación"] = 0  # siempre 0, pues validación se hace en mismo puesto
+        if "Cola de validación" not in fila or fila["Cola de validación"] is None:
+            fila["Cola de validación"] = len(cola_validacion)
 
         # ===== Columna 23: Tiempo validación =====
-        fila["Tiempo validación"] = int(tiempo_validacion)
+        if "Tiempo validación" not in fila or fila["Tiempo validación"] is None:
+            fila["Tiempo validación"] = 0  # En el resto de los eventos, 0
 
         # ===== Columna 24: Fin de validación =====
         # Se colocó en el caso “Fin de carga”; en otros eventos queda None
@@ -408,10 +447,8 @@ def simular_puestos_carga(
     else:
         clock_para_util = clock
 
-    utilizacion_promedio = (
-        area_ocupados / (n_servidores * clock_para_util) * 100
-        if clock_para_util > 0 else 0.0
-    )
+    
+    utilizacion_promedio = vector_estado[-1]["Promedio porcentaje puestos en uso"]
 
     resumen = {
         "n_aceptadas": n_aceptadas,
@@ -441,9 +478,11 @@ def index():
             p_lightning = float(request.form.get("p_lightning", "0.25"))
             p_microusb = float(request.form.get("p_microusb", "0.30"))
 
+            n_servidores = int(request.form.get("n_servidores", "8"))
+
             suma_probs = p_usb_c + p_lightning + p_microusb
-            if abs(suma_probs - 1.0) > 1e-6:
-                error_msg = "Los porcentajes de USB-C, Lightning y MicroUSB deben sumar 1.0."
+            if (abs(suma_probs - 1.0) > 1e-6) or (p_usb_c < 0 or p_lightning < 0 or p_microusb < 0):
+                error_msg = "Los porcentajes de USB-C, Lightning y MicroUSB deben sumar 1.0. y no pueden ser negativos."
         except ValueError:
             error_msg = "Por favor, ingrese valores numéricos válidos en todos los campos."
 
@@ -464,7 +503,8 @@ def index():
             p_usb_c=p_usb_c,
             p_lightning=p_lightning,
             p_microusb=p_microusb,
-            tiempo_validacion=tiempo_validacion
+            tiempo_validacion=tiempo_validacion,
+            n_servidores=n_servidores 
         )
 
         if not vector:
