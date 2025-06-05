@@ -182,6 +182,11 @@ def simular_puestos_carga(
     fila0["Recaudación USB C"] = 0.0
     fila0["Recaudación Lightning"] = 0.0
     fila0["Recaudación MicroUSB"] = 0.0
+    fila0["Recaudacion Total"] = 0.0
+    fila0["Acumulador Dispositivos Aceptados"] = 0.0
+    fila0["Acumulador Dispositivos Rechazados"] = 0.0
+    
+
 
     # Inicializar vector de estado con esa fila 0
     vector_estado = [fila0]
@@ -262,6 +267,10 @@ def simular_puestos_carga(
         fila["Recaudación USB C"] = None
         fila["Recaudación Lightning"] = None
         fila["Recaudación MicroUSB"] = None
+        fila["Recaudacion Total"] = 0.0
+        fila["Acumulador Dispositivos Aceptados"] = None
+        fila["Acumulador Dispositivos Rechazados"] = None
+        
 
         # ===== Caso 1: Llegada de dispositivo =====
         if evento.tipo == "arrival":
@@ -311,6 +320,7 @@ def simular_puestos_carga(
                 fila["Tiempo carga"] = int(dur_carga_min)
 
                 n_aceptadas += 1
+                
             else:
                 # Rechazo la llegada
                 n_rechazadas += 1
@@ -330,14 +340,17 @@ def simular_puestos_carga(
                 if tipo_disp == "USB-C":
                     acum_time_usb_c += dur_carga_min
                     rec_usb_c += tarifas["USB-C"] * (dur_carga_min / 60)
+                    recaudacion_total += tarifas["USB-C"] * (dur_carga_min / 60)
                 elif tipo_disp == "Lightning":
                     acum_time_lightning += dur_carga_min
                     rec_lightning += tarifas["Lightning"] * (dur_carga_min / 60)
+                    recaudacion_total += tarifas["Lightning"] * (dur_carga_min / 60)
                 else:  # MicroUSB
                     acum_time_microusb += dur_carga_min
                     rec_microusb += tarifas["MicroUSB"] * (dur_carga_min / 60)
+                    recaudacion_total += tarifas["MicroUSB"] * (dur_carga_min / 60)
 
-            recaudacion_total += rec_usb_c + rec_lightning + rec_microusb
+            
             # 1) El servidor queda libre para cargar, pero el dispositivo va a validación
             servidores[idx_ser]["etapa"] = None
             servidores[idx_ser]["fin_carga"] = None
@@ -351,7 +364,7 @@ def simular_puestos_carga(
                 heapq.heappush(eventos_futuros, Evento(t_fin_valid, "end_validation", (idx_ser, tipo_disp, t_fin_valid)))
                 fila["Cola de validación"] = len(cola_validacion)
                 fila["Fin de validación"] = round(t_fin_valid, 4)
-                fila["Tiempo validación"] = 2  # ← Solo aquí
+                fila["Tiempo validación"] = tiempo_validacion  # ← Solo aquí
             else:
                 cola_validacion.append((idx_ser, tipo_disp))
                 fila["Cola de validación"] = len(cola_validacion)
@@ -377,7 +390,7 @@ def simular_puestos_carga(
                 heapq.heappush(eventos_futuros, Evento(t_fin_valid_next, "end_validation", (next_idx_ser, next_tipo_disp, t_fin_valid_next)))
                 fila["Cola de validación"] = len(cola_validacion)
                 fila["Fin de validación"] = round(t_fin_valid_next, 4)
-                fila["Tiempo validación"] = 2  # ← Solo aquí
+                fila["Tiempo validación"] = tiempo_validacion 
             else:
                 puesto_validacion_libre = True
                 fila["Cola de validación"] = 0
@@ -432,6 +445,10 @@ def simular_puestos_carga(
         fila["Recaudación USB C"] = round(rec_usb_c, 2)
         fila["Recaudación Lightning"] = round(rec_lightning, 2)
         fila["Recaudación MicroUSB"] = round(rec_microusb, 2)
+        fila["Recaudacion Total"] = recaudacion_total
+        fila["Acumulador Dispositivos Aceptados"] = n_aceptadas
+        fila["Acumulador Dispositivos Rechazados"] = n_rechazadas
+        
 
         # ===== Agregar fila completa al vector de estado =====
         vector_estado.append(fila)
@@ -483,6 +500,9 @@ def index():
             suma_probs = p_usb_c + p_lightning + p_microusb
             if (abs(suma_probs - 1.0) > 1e-6) or (p_usb_c < 0 or p_lightning < 0 or p_microusb < 0):
                 error_msg = "Los porcentajes de USB-C, Lightning y MicroUSB deben sumar 1.0. y no pueden ser negativos."
+            if (T_max < 0 or N_max < 0 or tiempo_validacion < 0 or media_interarribo < 0):
+                error_msg = "Los valores  del tiempo de simulación, tiempo de validación, cantidad de iteraciones o cantidad media de llegada no pueden sser negativos "
+
         except ValueError:
             error_msg = "Por favor, ingrese valores numéricos válidos en todos los campos."
 
