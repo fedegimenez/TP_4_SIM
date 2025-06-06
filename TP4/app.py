@@ -215,6 +215,8 @@ def simular_puestos_carga(
     area_ocupados = 0.0
     reloj_previo = 0.0
     n_ocupados_previo = 0
+    acum_porcentaje_ponderado = 0.0
+    acum_tiempo_ponderado = 0.0
 
     # ===== Bucle de eventos (filas 1, 2, 3…) =====
     while eventos_futuros and evento_id < N_max:
@@ -401,16 +403,44 @@ def simular_puestos_carga(
             # No debería pasar
             continue
 
-        # ===== Columnas 9–10: Cant dispositivos en puerto y % puestos en uso =====
+        # # ===== Columnas 9–10: Cant dispositivos en puerto y % puestos en uso =====
+        # ocupados = sum(1 for srv in servidores if srv["ocupado"])
+        # fila["Cant dispositivos en puerto"] = ocupados
+
+        # porcentaje_en_uso = (ocupados / n_servidores) * 100 if n_servidores > 0 else 0.0
+        # fila["Porcentaje Puestos en uso"] = porcentaje_en_uso
+        # acum_porcentaje_puestos += porcentaje_en_uso
+        # fila["Acum porcentaje puestos en uso"] = acum_porcentaje_puestos
+
+        # fila["Promedio porcentaje puestos en uso"] = round((acum_porcentaje_puestos / evento_id), 4) if evento_id > 0 else 0.0
+
+
+        # ===== Columnas 9–10: Cant dispositivos en puerto y % puestos en uso (PONDERADO EN EL TIEMPO CORRECTO) =====
+        ## BASICAMENTE LO QUE SE HACE ES VER CUANTO TIEMPO ESTUVO OCUPADO EL SERVIDOR DESDE EL ULTIMO EVENTO Y CON ESO ACUMULAR EL PORCENTAJE PONDERADO Y DIVIDIRLO POR EL TIEMPO TOTAL
         ocupados = sum(1 for srv in servidores if srv["ocupado"])
         fila["Cant dispositivos en puerto"] = ocupados
 
+        # Estado actual (para guardar y mostrar en esta fila)
         porcentaje_en_uso = (ocupados / n_servidores) * 100 if n_servidores > 0 else 0.0
         fila["Porcentaje Puestos en uso"] = porcentaje_en_uso
-        acum_porcentaje_puestos += porcentaje_en_uso
-        fila["Acum porcentaje puestos en uso"] = acum_porcentaje_puestos
 
-        fila["Promedio porcentaje puestos en uso"] = round((acum_porcentaje_puestos / evento_id), 4) if evento_id > 0 else 0.0
+        # Pero para ponderar, usamos el estado anterior
+        porcentaje_previo = (n_ocupados_previo / n_servidores) * 100 if n_servidores > 0 else 0.0
+        ponderado_actual = porcentaje_previo * delta_t # Estamos ponderando por la cantidad de tiempo que estuvo ocupado el servidor desde el último evento
+
+        if evento_id == 1:
+            acum_porcentaje_ponderado = ponderado_actual
+            acum_tiempo_ponderado = delta_t
+        else:
+            acum_porcentaje_ponderado += ponderado_actual
+            acum_tiempo_ponderado += delta_t
+
+        fila["Acum porcentaje puestos en uso (ponderado)"] = round(acum_porcentaje_ponderado, 4)
+        fila["Promedio porcentaje puestos en uso (ponderado)"] = round((acum_porcentaje_ponderado / acum_tiempo_ponderado), 4) if acum_tiempo_ponderado > 0 else 0.0 
+        ##Si bien estamos usando el acum_tiempo_ponderado, este es igual al tiempo actual de la simulación, pero lo hacemos para poder entender mejor el concepto de ponderación
+        
+        # Actualizar ocupados previos
+        n_ocupados_previo = ocupados
 
         # ===== Columnas 13–20: Fin de carga puesto 1..8 =====
         for i in range(n_servidores):
@@ -453,16 +483,7 @@ def simular_puestos_carga(
         # ===== Agregar fila completa al vector de estado =====
         vector_estado.append(fila)
 
-        # Actualizar ocupados previos
-        n_ocupados_previo = ocupados
-
-    # ===== Ajuste final de área para cálculo de utilización =====
-    if clock < T_max:
-        delta_t = T_max - reloj_previo
-        area_ocupados += delta_t * n_ocupados_previo
-        clock_para_util = T_max
-    else:
-        clock_para_util = clock
+        
 
     
     utilizacion_promedio = vector_estado[-1]["Promedio porcentaje puestos en uso"]
