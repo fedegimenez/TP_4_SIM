@@ -486,7 +486,7 @@ def simular_puestos_carga(
         
 
     
-    utilizacion_promedio = vector_estado[-1]["Promedio porcentaje puestos en uso"]
+    utilizacion_promedio = vector_estado[-1]["Promedio porcentaje puestos en uso (ponderado)"]
 
     resumen = {
         "n_aceptadas": n_aceptadas,
